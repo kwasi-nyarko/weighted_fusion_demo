@@ -4,58 +4,82 @@ import open3d as o3d
 import numpy as np
 
 
-def load_pointCloud(pc_path):
-    pc_ext = pc_path.split(".")[-1]
+U16MAX = np.iinfo(np.uint16).max
+
+
+def load_point_cloud(pc_path):
+    """
+    Load a point cloud from a PLY, LAS/LAZ or E57 file.
+
+    Returns a numpy array of shape (n, 6) with x, y, z, and the normalized
+    colors red, green, blue.
+    """
+    pc_ext = pc_path.split(".")[-1].lower()
     if pc_ext == "e57":
-        np_pointCloud = load_pye57_file(pc_path)
+        np_pc = load_pye57_file(pc_path)
     elif pc_ext == "las" or pc_ext == "laz":
-        np_pointCloud = load_las_file(pc_path)
+        np_pc = load_las_file(pc_path)
     elif pc_ext == "ply":
-        np_pointCloud = load_ply_file(pc_path)
+        np_pc = load_ply_file(pc_path)
     else:
-        print(
-            "ERROR: Check the file extension of the file. \n Only accepts *.ply, *.las/*.laz and *.e57En"
+        raise IOError("Only PLY, LAS/LAZ and E57 files supported")
+    return np_pc
+
+
+def load_las_file(path, color=True, intensity=False):
+    with laspy.open(path) as las:
+        data = las.read()
+
+        points = np.stack(
+            (
+                np.asarray(data.x),
+                np.asarray(data.y),
+                np.asarray(data.z),
+            ),
+            axis=1,
         )
-    return np_pointCloud
+
+        if not color:
+            np_pc = points
+        else:
+            colors = np.stack(
+                (
+                    np.asarray(data.red),
+                    np.asarray(data.green),
+                    np.asarray(data.blue),
+                ),
+                axis=1,
+            )
+            colors = colors.astype(np.float64) / U16MAX  # normalize colors to [0,1]
+
+            if not intensity:
+                np_pc = np.concatenate((points, colors), axis=1)
+            else:
+                intensity = np.asarray(data.intensity)
+                np_pc = np.concatenate((points, colors, intensity), axis=1)
+
+    return np_pc
 
 
-def load_las_file(path, intensity=False):
-    """
-    convert laspy.lasdata.LasData into a np array
-    """
-    with laspy.open(path) as las_path:
-        las = las_path.read()
-
-    points = np.stack((np.asarray(las.x), np.asarray(las.y), np.asarray(las.z)), axis=1)
-    try:
-        colors = np.stack(
-            (np.asarray(las.red), np.asarray(las.green), np.asarray(las.blue)), axis=1
-        )
-        if intensity:
-            intens = np.asarray(las.intensity)
-            pc_np = np.concatenate((points, colors, intens), axis=1)
-        pc_np = np.concatenate((points, colors), axis=1)
-        return pc_np
-    except KeyError:
-        return points
-
-
-def load_ply_file(path, color=True, estimate_normals=True):
+def load_ply_file(path, color=True, estimate_normals=False):
     pcd = o3d.io.read_point_cloud(path)
     points = pcd.points
-    point_cloud = np.array(points)
-    if color:
+
+    if not color:
+        np_pc = np.array(points)
+    else:
         colors = pcd.colors
-        point_cloud = np.concatenate((points, colors), axis=1)
+        if estimate_normals:
+            pcd.estimate_normals(fast_normal_computation=False)
+            normals = pcd.normals
+            np_pc = np.concatenate((points, colors, normals), axis=1)
+        else:
+            np_pc = np.concatenate((points, colors), axis=1)
 
-    if estimate_normals:
-        pcd.estimate_normals(fast_normal_computation=False)
-        normals = pcd.normals
-        point_cloud = np.concatenate((points, colors, normals), axis=1)
-    return point_cloud
+    return np_pc
 
 
-def load_pye57_file(path, intensity=False):
+def load_pye57_file(path, color=True, intensity=False):
     """
     input:
         path (String): directory to file
@@ -66,19 +90,28 @@ def load_pye57_file(path, intensity=False):
     """
     e57 = pye57.E57(path)
     data = e57.read_scan(
-        0, colors=True, intensity=intensity, ignore_missing_fields=True
+        0,
+        colors=color,
+        intensity=intensity,
+        ignore_missing_fields=True,
     )
 
     points = np.array([data["cartesianX"], data["cartesianY"], data["cartesianZ"]]).T
-    colors = np.array([data["colorRed"], data["colorGreen"], data["colorBlue"]]).T / 255
 
-    # return a numpy array
-    if intensity:
-        intensity = np.array([data["intensity"]]).T
-        point_cloud = np.concatenate((points, colors, intensity), axis=1)
+    if not color:
+        np_pc = points
+    else:
 
-    point_cloud = np.concatenate((points, colors), axis=1)
-    return point_cloud
+        colors = np.array([data["colorRed"], data["colorGreen"], data["colorBlue"]]).T
+        colors = colors.astype(np.float64) / 255  # normalize colors to [0,1]
+
+        if not intensity:
+            np_pc = np.concatenate((points, colors), axis=1)
+        else:
+            intensity = np.array([data["intensity"]]).T
+            np_pc = np.concatenate((points, colors, intensity), axis=1)
+
+    return np_pc
 
 
 def write_las_file(pc_np, las_path):
@@ -93,9 +126,9 @@ def write_las_file(pc_np, las_path):
     las.x = pc_np[:, 0]
     las.y = pc_np[:, 1]
     las.z = pc_np[:, 2]
-    las.red = pc_np[:, 3] * 255
-    las.green = pc_np[:, 4] * 255
-    las.blue = pc_np[:, 5] * 255
+    las.red = pc_np[:, 3] * U16MAX
+    las.green = pc_np[:, 4] * U16MAX
+    las.blue = pc_np[:, 5] * U16MAX
 
     if pc_np.shape[1] == 7:
         las.intensity = pc_np[:, 6]

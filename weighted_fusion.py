@@ -2,7 +2,7 @@ import open3d as o3d
 import numpy as np
 import tqdm
 
-from weighted_fusion_io import load_pointCloud
+from weighted_fusion_io import load_point_cloud
 
 def preprocess_point_cloud(pcd, voxel_size):
     pcd_down = pcd.voxel_down_sample(voxel_size)
@@ -158,7 +158,7 @@ def load_PC_acc():
     pc_path = str(input("Enter point cloud directory: "))
     accuracy = float(input("Enter the accuracy of the sensor system in meters: "))
     print("Loading point cloud")
-    np_pointCloud =  load_pointCloud(pc_path)
+    np_pointCloud =  load_point_cloud(pc_path)
     print("Done.")
     return np_pointCloud, accuracy,pc_path
 
