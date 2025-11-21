@@ -86,32 +86,30 @@ def compute_rmse(lst_PC, lst_acc, voxel_size):
 
 def compute_surface_area(pcd, voxel_size):
     radii = [voxel_size, voxel_size * 2, voxel_size * 4, voxel_size * 5]
+    radii = o3d.utility.DoubleVector(radii)
+
     rec_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(
-        pcd, o3d.utility.DoubleVector(radii)
+        pcd, radii
     )
+
     return rec_mesh.get_surface_area()
 
 
-def compute_coverage(reference_pcd, pcd, voxel_size):
-    ds_ref_pcd = reference_pcd.voxel_down_sample(voxel_size=voxel_size)
-    ds_pcd = pcd.voxel_down_sample(voxel_size=voxel_size)
-    coverage = compute_surface_area(ds_pcd, voxel_size) / compute_surface_area(
-        ds_ref_pcd, voxel_size
-    )
-    return coverage
-
-
-def weight_compute(reference_pcd, pcd, accuracy, voxel_size):
-    completeness = compute_coverage(reference_pcd, pcd, voxel_size)
-    weight = accuracy / completeness
-    return weight
-
-
 def compute_weights(reference_pcd, point_clouds, accuracies, voxel_size):
+    reference_pcd_ds = reference_pcd.voxel_down_sample(voxel_size=voxel_size * 2)
+    reference_surface_area = compute_surface_area(reference_pcd_ds, voxel_size * 2)
+
     weights = []
+
     for pc_idx in range(len(point_clouds)):
         pcd = np_point_cloud2_pcd(point_clouds[pc_idx])
-        weight = weight_compute(reference_pcd, pcd, accuracies[pc_idx], voxel_size * 2)
+        pcd_ds = pcd.voxel_down_sample(voxel_size=voxel_size * 2)
+
+        pcd_surface_area = compute_surface_area(pcd_ds, voxel_size * 2)
+
+        completeness = pcd_surface_area / reference_surface_area
+        weight = accuracies[pc_idx] / completeness
+
         weights.append(weight)
 
     if len(weights) > 1:
