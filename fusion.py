@@ -107,6 +107,7 @@ def weighted_fusion_filter(
     k_2,
     threshold,
 ):
+    # FIXME: proper point_cont handling. Only point_cont_ from last iteration is returned.
     point_cont = np.zeros(len(point_clouds))
     fused_points = np.zeros((1, 6))
     buff = (voxel_size + voxel_size * 0.1) / 2
@@ -147,4 +148,4 @@ def weighted_fusion_filter(
 
         fused_points = np.concatenate((fused_points, point.reshape(-1, 6)), axis=0)
 
-    return fused_points[1:, :], point_cont_
+    return fused_points[1:, :], point_cont_ 
