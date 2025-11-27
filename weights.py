@@ -97,15 +97,14 @@ def compute_weights(reference_pcd, point_clouds_pcd, accuracies, voxel_size):
 
     weights = []
 
-    for pc_idx in range(len(point_clouds_pcd)):
-        pcd = point_clouds_pcd[pc_idx]
+    for pcd, accuracy in zip(point_clouds_pcd, accuracies):
 
         pcd_ds = pcd.voxel_down_sample(voxel_size=voxel_size * 2)
 
         pcd_surface_area = compute_surface_area(pcd_ds, voxel_size * 2)
 
         completeness = pcd_surface_area / reference_surface_area
-        weight = accuracies[pc_idx] / completeness
+        weight = accuracy / completeness
 
         weights.append(weight)
 

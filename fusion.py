@@ -3,18 +3,22 @@ import open3d as o3d
 import tqdm
 
 
-def estimate_std(pcd, distance_threshold):
-    _, inliers = pcd.segment_plane(
-        distance_threshold=distance_threshold,
-        ransac_n=5,
-        num_iterations=1000,
-    )
+def estimate_noise(pcd, distance_threshold):
+    if len(pcd.points) <= 10:
+        return 1
+    else:
+        # estimate std
+        _, inliers = pcd.segment_plane(
+            distance_threshold=distance_threshold,
+            ransac_n=5,
+            num_iterations=1000,
+        )
 
-    pcd_inliers = pcd.select_by_index(inliers)
+        pcd_inliers = pcd.select_by_index(inliers)
 
-    dists = pcd.compute_point_cloud_distance(pcd_inliers)
+        dists = pcd.compute_point_cloud_distance(pcd_inliers)
 
-    return 1 - np.std(np.asarray(dists))
+        return 1 - np.std(np.asarray(dists))
 
 
 def request_points(pcd, reference_point, buff):
@@ -31,12 +35,7 @@ def request_points(pcd, reference_point, buff):
     indices = np.argwhere(f).flatten().tolist()
     selection = pcd.select_by_index(indices=indices)
 
-    if len(selection.points) <= 10:
-        noise_point = 1
-    else:
-        noise_point = estimate_std(selection, buff * 0.01)
-
-    return selection, noise_point
+    return selection
 
 
 def check_points_distribution(pcd, reference_point, threshold, voxel_size):
@@ -59,7 +58,7 @@ def adjusted_voxel2(
 ):
     fused_sub_pcd = o3d.geometry.PointCloud()
 
-    sub_voxel_pcd, _ = request_points(reference_pcd_ds_sub, reference_point, buff)
+    sub_voxel_pcd = request_points(reference_pcd_ds_sub, reference_point, buff)
     sub_voxel_points = np.asarray(sub_voxel_pcd.points)
 
     for i in range(sub_voxel_points.shape[0]):
@@ -69,7 +68,9 @@ def adjusted_voxel2(
         local_weights = []
 
         for pcd in super_voxel_pcds:
-            filtered, noise = request_points(pcd, sub_voxel_point, buff * 0.5)
+            filtered = request_points(pcd, sub_voxel_point, buff * 0.5)
+
+            noise = estimate_noise(filtered, buff * 0.5 * 0.01)
 
             local_weight = len(filtered.points) * noise
             local_weights.append(local_weight)
@@ -104,7 +105,7 @@ def weighted_fusion_filter(
     k_2,
     threshold,
 ):
-    fused_points = o3d.geometry.PointCloud()
+    fused_pcd = o3d.geometry.PointCloud()
 
     buff = (voxel_size + voxel_size * 0.1) / 2
 
@@ -115,10 +116,13 @@ def weighted_fusion_filter(
         local_weights = []
 
         for pcd in point_clouds_pcd:
-            voxel_pcd, noise_point = request_points(pcd, reference_point, buff)
-            voxel_pcds.append(voxel_pcd)
+            voxel_pcd = request_points(pcd, reference_point, buff)
+            
+            noise_point = estimate_noise(voxel_pcd, buff * 0.01)
 
             weight = (len(voxel_pcd.points) / (voxel_size * 10) ** 3) * noise_point
+
+            voxel_pcds.append(voxel_pcd)
             local_weights.append(weight)
 
         local_weights = local_weights / np.sum(local_weights)
@@ -139,7 +143,7 @@ def weighted_fusion_filter(
                 0.5 * threshold,
             )
 
-        fused_points.points.extend(voxel_pcd.points)
-        fused_points.colors.extend(voxel_pcd.colors)
+        fused_pcd.points.extend(voxel_pcd.points)
+        fused_pcd.colors.extend(voxel_pcd.colors)
 
-    return fused_points
+    return fused_pcd
