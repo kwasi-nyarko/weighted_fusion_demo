@@ -77,7 +77,7 @@ def adjusted_voxel2(
 
             sub_voxel_pcds.append(filtered)
 
-        weights = np.array(np.array(global_weights) * np.array(local_weights))
+        weights = global_weights * np.array(local_weights)
         weights = weights / np.sum(weights)
 
         idx = np.argmax(weights)
@@ -101,11 +101,13 @@ def weighted_fusion_filter(
     reference_points,
     reference_pcd_ds_sub,
     voxel_size,
-    k_1,
-    k_2,
     threshold,
+    k_global,
+    k_local,
 ):
     fused_pcd = o3d.geometry.PointCloud()
+
+    global_weights = np.array(global_weights)
 
     buff = (voxel_size + voxel_size * 0.1) / 2
 
@@ -117,7 +119,7 @@ def weighted_fusion_filter(
 
         for pcd in point_clouds_pcd:
             voxel_pcd = request_points(pcd, reference_point, buff)
-            
+
             noise_point = estimate_noise(voxel_pcd, buff * 0.01)
 
             weight = (len(voxel_pcd.points) / (voxel_size * 10) ** 3) * noise_point
@@ -125,9 +127,9 @@ def weighted_fusion_filter(
             voxel_pcds.append(voxel_pcd)
             local_weights.append(weight)
 
+        local_weights = np.array(local_weights)
         local_weights = local_weights / np.sum(local_weights)
-
-        weights = (k_1 * np.array(global_weights)) + (k_2 * np.array(local_weights))
+        weights = (k_global * global_weights) + (k_local * local_weights)
         weights = weights / np.sum(weights)
 
         idx = np.argmax(weights)

@@ -14,6 +14,7 @@ def prepare_dataset(pcd, voxel_size, is_target=False):
     )
 
     if not is_target:
+        # prevent transform mutating pcd passed by reference in place
         pcd = copy.deepcopy(pcd).transform(TRANS_INIT)
 
     pcd_down = pcd.voxel_down_sample(voxel_size)
@@ -26,7 +27,7 @@ def prepare_dataset(pcd, voxel_size, is_target=False):
     params = o3d.geometry.KDTreeSearchParamHybrid(radius=radius_feature, max_nn=100)
     pcd_fpfh = o3d.pipelines.registration.compute_fpfh_feature(pcd_down, params)
 
-    return pcd, pcd_down, pcd_fpfh
+    return pcd_down, pcd_fpfh
 
 
 def global_registration(source_down, target_down, source_fpfh, target_fpfh, voxel_size):
@@ -63,14 +64,12 @@ def global_registration(source_down, target_down, source_fpfh, target_fpfh, voxe
 def compute_rmse(point_clouds_pcd, accuracies, voxel_size):
     # prepeare target
     target_pcd = point_clouds_pcd[accuracies.index(min(accuracies))]
-    target_pcd, target_down, target_fpfh = prepare_dataset(
-        target_pcd, voxel_size, is_target=True
-    )
+    (target_down, target_fpfh) = prepare_dataset(target_pcd, voxel_size, is_target=True)
 
     rmse = []
 
     for source_pcd in point_clouds_pcd:
-        (source_pcd, source_down, source_fpfh) = prepare_dataset(source_pcd, voxel_size)
+        (source_down, source_fpfh) = prepare_dataset(source_pcd, voxel_size)
 
         result_ransac = global_registration(
             source_down, target_down, source_fpfh, target_fpfh, voxel_size
@@ -111,7 +110,6 @@ def compute_weights(reference_pcd, point_clouds_pcd, accuracies, voxel_size):
     if len(weights) > 1:
         weights = np.sum(weights) - weights
 
-    # weights_ = weights / np.sum(weights)
     rmse = compute_rmse(point_clouds_pcd, accuracies, voxel_size)
-    g_weight = weights / (1 - rmse)
-    return g_weight
+
+    return weights / (1 - rmse)
