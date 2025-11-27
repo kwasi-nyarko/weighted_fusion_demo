@@ -2,8 +2,6 @@ import copy
 import numpy as np
 import open3d as o3d
 
-from data import np_point_cloud2_pcd
-
 
 def prepare_dataset(pcd, voxel_size, is_target=False):
     TRANS_INIT = np.asarray(
@@ -16,7 +14,7 @@ def prepare_dataset(pcd, voxel_size, is_target=False):
     )
 
     if not is_target:
-        pcd.transform(TRANS_INIT)
+        pcd = copy.deepcopy(pcd).transform(TRANS_INIT)
 
     pcd_down = pcd.voxel_down_sample(voxel_size)
 
@@ -65,7 +63,6 @@ def global_registration(source_down, target_down, source_fpfh, target_fpfh, voxe
 def compute_rmse(point_clouds_pcd, accuracies, voxel_size):
     # prepeare target
     target_pcd = point_clouds_pcd[accuracies.index(min(accuracies))]
-    target_pcd = copy.deepcopy(target_pcd)
     target_pcd, target_down, target_fpfh = prepare_dataset(
         target_pcd, voxel_size, is_target=True
     )
@@ -94,16 +91,14 @@ def compute_surface_area(pcd, voxel_size):
     return rec_mesh.get_surface_area()
 
 
-def compute_weights(reference_pcd, point_clouds, accuracies, voxel_size):
+def compute_weights(reference_pcd, point_clouds_pcd, accuracies, voxel_size):
     reference_pcd_ds = reference_pcd.voxel_down_sample(voxel_size=voxel_size * 2)
     reference_surface_area = compute_surface_area(reference_pcd_ds, voxel_size * 2)
 
     weights = []
-    point_clouds_pcd = []
 
-    for pc_idx in range(len(point_clouds)):
-        pcd = np_point_cloud2_pcd(point_clouds[pc_idx])
-        point_clouds_pcd.append(pcd)
+    for pc_idx in range(len(point_clouds_pcd)):
+        pcd = point_clouds_pcd[pc_idx]
 
         pcd_ds = pcd.voxel_down_sample(voxel_size=voxel_size * 2)
 

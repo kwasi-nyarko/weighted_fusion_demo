@@ -1,14 +1,13 @@
 import numpy as np
+import open3d as o3d
 import tqdm
 
-from data import np_point_cloud2_pcd
 
-
-def estimate_std(point_cloud, distance_threshold):
-    pcd = np_point_cloud2_pcd(point_cloud)
-
+def estimate_std(pcd, distance_threshold):
     _, inliers = pcd.segment_plane(
-        distance_threshold=distance_threshold, ransac_n=5, num_iterations=1000
+        distance_threshold=distance_threshold,
+        ransac_n=5,
+        num_iterations=1000,
     )
 
     pcd_inliers = pcd.select_by_index(inliers)
@@ -18,111 +17,108 @@ def estimate_std(point_cloud, distance_threshold):
     return 1 - np.std(np.asarray(dists))
 
 
-def request_points(point_cloud, reference_point, buff):
-    points = point_cloud[
-        np.where(
-            (point_cloud[:, 0] < reference_point[0] + buff)
-            & (point_cloud[:, 0] > reference_point[0] - buff)
-            & (point_cloud[:, 1] < reference_point[1] + buff)
-            & (point_cloud[:, 1] > reference_point[1] - buff)
-            & (point_cloud[:, 2] < reference_point[2] + buff)
-            & (point_cloud[:, 2] > reference_point[2] - buff)
-        ),
-        :,
-    ]
+def request_points(pcd, reference_point, buff):
+    points = np.asarray(pcd.points)
 
-    points = points.reshape(-1, 6)
+    f = (
+        (points[:, 0] < reference_point[0] + buff)
+        & (points[:, 0] > reference_point[0] - buff)
+        & (points[:, 1] < reference_point[1] + buff)
+        & (points[:, 1] > reference_point[1] - buff)
+        & (points[:, 2] < reference_point[2] + buff)
+        & (points[:, 2] > reference_point[2] - buff)
+    )
+    indices = np.argwhere(f).flatten().tolist()
+    selection = pcd.select_by_index(indices=indices)
 
-    noise_point = 1 if points.shape[0] <= 10 else estimate_std(points, buff * 0.01)
+    if len(selection.points) <= 10:
+        noise_point = 1
+    else:
+        noise_point = estimate_std(selection, buff * 0.01)
 
-    return points, noise_point
+    return selection, noise_point
 
 
-def check_points_distribution(selected_point, reference_point, threshold, voxel_size):
-    selected_point = selected_point.reshape(-1, 6)
-
-    if selected_point.shape[0] <= 1:
+def check_points_distribution(pcd, reference_point, threshold, voxel_size):
+    if len(pcd.points) <= 1:
         return False
 
-    coords_diff_norm = np.linalg.norm(
-        np.mean(selected_point, axis=0)[:3] - reference_point[:3]
-    )
+    coords_mean = np.mean(np.asarray(pcd.points), axis=0)
+    coords_diff_norm = np.linalg.norm(coords_mean - reference_point)
 
     return coords_diff_norm > (threshold * voxel_size)
 
 
 def adjusted_voxel2(
-    reference_pc_ds_sub,
+    reference_pcd_ds_sub,
     reference_point,
-    super_voxel_points,
+    super_voxel_pcds,
     global_weights,
     buff,
     threshold,
-    point_cont,
 ):
-    fused_sub_point = np.zeros((1, 6))
-    sub_voxel_points, _ = request_points(reference_pc_ds_sub, reference_point, buff)
+    fused_sub_pcd = o3d.geometry.PointCloud()
+
+    sub_voxel_pcd, _ = request_points(reference_pcd_ds_sub, reference_point, buff)
+    sub_voxel_points = np.asarray(sub_voxel_pcd.points)
 
     for i in range(sub_voxel_points.shape[0]):
         sub_voxel_point = sub_voxel_points[i]
 
-        sub_vox_pnt = []
+        sub_voxel_pcds = []
         local_weights = []
 
-        for super_voxel_point in super_voxel_points:
-            points, noise = request_points(
-                super_voxel_point, sub_voxel_point, buff * 0.5
-            )
-            local_weight = points.shape[0] * noise
+        for pcd in super_voxel_pcds:
+            filtered, noise = request_points(pcd, sub_voxel_point, buff * 0.5)
+
+            local_weight = len(filtered.points) * noise
             local_weights.append(local_weight)
 
-            sub_vox_pnt.append(points)
+            sub_voxel_pcds.append(filtered)
 
         weights = np.array(np.array(global_weights) * np.array(local_weights))
         weights = weights / np.sum(weights)
 
         idx = np.argmax(weights)
-        point = sub_vox_pnt[idx]
 
-        point_cont[idx] = point_cont[idx] + 1
+        point = sub_voxel_pcds.pop(idx)
+
+        fused_sub_pcd.points.extend(point.points)
+        fused_sub_pcd.colors.extend(point.colors)
 
         if check_points_distribution(point, sub_voxel_point, threshold, buff):
-            point = np.vstack(sub_vox_pnt)
-            point_cont = point_cont + 1
+            for pcd in sub_voxel_pcds:
+                fused_sub_pcd.points.extend(pcd.points)
+                fused_sub_pcd.colors.extend(pcd.colors)
 
-        fused_sub_point = np.concatenate(
-            (fused_sub_point, point.reshape(-1, 6)), axis=0
-        )
-
-    return fused_sub_point[1:, :], point_cont
+    return fused_sub_pcd
 
 
 def weighted_fusion_filter(
-    point_clouds,
+    point_clouds_pcd,
     global_weights,
-    reference_pc_ds,
-    reference_pc_ds_sub,
+    reference_points,
+    reference_pcd_ds_sub,
     voxel_size,
     k_1,
     k_2,
     threshold,
 ):
-    # FIXME: proper point_cont handling. Only point_cont_ from last iteration is returned.
-    point_cont = np.zeros(len(point_clouds))
-    fused_points = np.zeros((1, 6))
+    fused_points = o3d.geometry.PointCloud()
+
     buff = (voxel_size + voxel_size * 0.1) / 2
 
-    for i in tqdm.tqdm(range(reference_pc_ds.shape[0])):
-        reference_point = reference_pc_ds[i]
+    for i in tqdm.tqdm(range(reference_points.shape[0])):
+        reference_point = reference_points[i]
 
-        points = []
+        voxel_pcds = []
         local_weights = []
 
-        for point_cloud in point_clouds:
-            pnts, noise_point = request_points(point_cloud, reference_point, buff)
-            points.append(pnts)
+        for pcd in point_clouds_pcd:
+            voxel_pcd, noise_point = request_points(pcd, reference_point, buff)
+            voxel_pcds.append(voxel_pcd)
 
-            weight = (pnts.shape[0] / (voxel_size * 10) ** 3) * noise_point
+            weight = (len(voxel_pcd.points) / (voxel_size * 10) ** 3) * noise_point
             local_weights.append(weight)
 
         local_weights = local_weights / np.sum(local_weights)
@@ -131,21 +127,19 @@ def weighted_fusion_filter(
         weights = weights / np.sum(weights)
 
         idx = np.argmax(weights)
-        point = points[idx]
+        voxel_pcd = voxel_pcds[idx]
 
-        if check_points_distribution(point, reference_point, threshold, voxel_size):
-            point, point_cont_ = adjusted_voxel2(
-                reference_pc_ds_sub,
+        if check_points_distribution(voxel_pcd, reference_point, threshold, voxel_size):
+            voxel_pcd = adjusted_voxel2(
+                reference_pcd_ds_sub,
                 reference_point,
-                points,
+                voxel_pcds,
                 global_weights,
                 buff,
                 0.5 * threshold,
-                point_cont,
             )
-        else:
-            point_cont[idx] = point_cont[idx] + 1
 
-        fused_points = np.concatenate((fused_points, point.reshape(-1, 6)), axis=0)
+        fused_points.points.extend(voxel_pcd.points)
+        fused_points.colors.extend(voxel_pcd.colors)
 
-    return fused_points[1:, :], point_cont_ 
+    return fused_points

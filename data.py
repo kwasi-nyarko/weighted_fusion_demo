@@ -145,7 +145,6 @@ def np_point_cloud2_pcd(point_cloud):
 
 
 def pcd2np_point_cloud(pcd):
-    pc_down_point = np.asarray(pcd.points)
-    pc_down_color = np.asarray(pcd.colors)
-    np_point_Cloud = np.concatenate((pc_down_point, pc_down_color), axis=1)
-    return np_point_Cloud
+    points = np.asarray(pcd.points)
+    colors = np.asarray(pcd.colors)
+    return np.concatenate((points, colors), axis=1)
