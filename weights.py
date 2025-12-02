@@ -103,6 +103,7 @@ def compute_weights(reference_pcd, point_clouds_pcd, accuracies, voxel_size):
         pcd_surface_area = compute_surface_area(pcd_ds, voxel_size * 2)
 
         completeness = pcd_surface_area / reference_surface_area
+        print("Completeness:", completeness)
         weight = accuracy / completeness
 
         weights.append(weight)
