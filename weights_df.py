@@ -1,26 +1,17 @@
 import numpy as np
 import open3d as o3d
 
-from datafusion import col, lit, functions as f, str_lit
+from datafusion import col, functions as f
 
-from expr import voxel_group_by_expr
+from data import convert_df2pcd
+from expr import COLORS, COORDS, voxel_group_by_expr
 from weights import global_registration
 
 
 def prepare_dataset_df(pc_df, voxel_size, is_target=False):
-    pcd_down = o3d.geometry.PointCloud()
-    results = pc_df.aggregate(
-        group_by=voxel_group_by_expr(voxel_size),
-        aggs=[
-            f.mean(col(column)) for column in ["x", "y", "z", "red", "green", "blue"]
-        ],
-    ).collect()
-
-    for rb in results:
-        rb = rb.drop_columns(["vx", "vy", "vz"])
-        pc = rb.to_tensor().to_numpy()
-        pcd_down.points.extend(pc[:, 0:3])
-        pcd_down.colors.extend(pc[:, 3:])
+    aggs = [f.mean(col(c)).alias(c) for c in [*COORDS, *COLORS]]
+    pc_df_down = pc_df.aggregate(group_by=voxel_group_by_expr(voxel_size), aggs=aggs)
+    pcd_down = convert_df2pcd(pc_df_down)
 
     TRANS_INIT = np.asarray(
         [
@@ -67,17 +58,14 @@ def compute_rmse_df(point_clouds_df, accuracies, voxel_size):
 
 def compute_weights_df(reference_df, point_clouds_df, accuracies, voxel_size):
     reference_voxel_count = reference_df.aggregate(
-        group_by=voxel_group_by_expr(voxel_size / 2.0),
-        aggs=[f.count_star().alias("count")],
+        group_by=voxel_group_by_expr(voxel_size / 2.0), aggs=[]
     ).count()
 
     weights = []
 
     for pc_df, accuracy in zip(point_clouds_df, accuracies):
-
         pc_volxel_count = pc_df.aggregate(
-            group_by=voxel_group_by_expr(voxel_size / 2.0),
-            aggs=[],
+            group_by=voxel_group_by_expr(voxel_size / 2.0), aggs=[]
         ).count()
 
         completeness = float(pc_volxel_count) / float(reference_voxel_count)

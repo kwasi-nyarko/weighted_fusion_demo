@@ -2,16 +2,24 @@
 # -----------------------------------------------------------------------------
 # Inputs
 # -----------------------------------------------------------------------------
-
+import time
 import open3d as o3d
 
-from data import load_point_cloud, np_point_cloud2_pcd
+from data import load_point_cloud, convert_np2pcd
 
 POINT_CLOUDS = ["assets/bun000_Cloud.las", "assets/bun045_Cloud.las"]
+# POINT_CLOUDS = [
+#     "data/Vidalaga/drone.las",
+#     "data/Vidalaga/p20.las",
+#     "data/Vidalaga/vlx.las",
+# ]
 VOXEL_SIZE = 0.05
 
+print("Load and downsample point clouds ... ")
+start = time.time()
+
 # load
-point_clouds_pcd = [np_point_cloud2_pcd(load_point_cloud(pc)) for pc in POINT_CLOUDS]
+point_clouds_pcd = [convert_np2pcd(load_point_cloud(pc)) for pc in POINT_CLOUDS]
 
 # merge
 reference_pcd = o3d.geometry.PointCloud()
@@ -25,6 +33,7 @@ reference_pcd_ds = reference_pcd.voxel_down_sample(voxel_size=VOXEL_SIZE)
 reference_pcd_ds_sub = reference_pcd.voxel_down_sample(voxel_size=VOXEL_SIZE / 2)
 
 print("Number of points in search space (voxels): ", len(reference_pcd_ds.points))
+print(f"Time to prepare point clouds: {time.time() - start:.3}s")
 
 # %%
 # -----------------------------------------------------------------------------
@@ -33,10 +42,11 @@ print("Number of points in search space (voxels): ", len(reference_pcd_ds.points
 from weights import compute_weights
 
 POINT_CLOUDS_ACCURACY = [0.01, 0.01]
-VOXEL_SIZE = 0.05
+# POINT_CLOUDS_ACCURACY = [0.1, 0.005, 0.01]
 
 # global weights
 print("Computing point cloud weights ... ")
+start = time.time()
 
 global_weights = compute_weights(
     reference_pcd,
@@ -46,6 +56,7 @@ global_weights = compute_weights(
 )
 
 print("Global Weights:", global_weights)
+print(f"Time to calculate weights: {time.time() - start:.3}s")
 
 # %%
 # -----------------------------------------------------------------------------
@@ -53,17 +64,17 @@ print("Global Weights:", global_weights)
 # -----------------------------------------------------------------------------
 import numpy as np
 
-from data import pcd2np_point_cloud
+from data import convert_pcd2np
 from fusion import weighted_fusion_filter
 
 THRESHOLD = 0.01
 K_GLOBAL = 1
 K_LOCAL = 1
-VOXEL_SIZE = 0.05
-
-reference_points = np.asarray(reference_pcd_ds.points)
 
 print("Fuse point clouds ... ")
+start = time.time()
+
+reference_points = np.asarray(reference_pcd_ds.points)
 
 fused_pcd = weighted_fusion_filter(
     point_clouds_pcd,
@@ -77,8 +88,8 @@ fused_pcd = weighted_fusion_filter(
 )
 
 # FIXME: this is super inefficient and the fused pcd contains only about 10% unique points
-fused_pc = np.unique(pcd2np_point_cloud(fused_pcd), axis=0)
-
+fused_pc = np.unique(convert_pcd2np(fused_pcd), axis=0)
+print(f"Time to fuse point clouds: {time.time() - start:.3}s")
 
 # %%
 # -----------------------------------------------------------------------------
@@ -90,7 +101,8 @@ from data import write_las_file
 
 OUTPUT_DIR = "output"
 
-file_name = "weighted_fused_filtered_{}_cm_vox.las".format(int(VOXEL_SIZE * 100))
+file_name = "bunny_fused.las"
+# file_name = "vidalaga_fused.las"
 write_las_file(fused_pc, os.path.join(OUTPUT_DIR, file_name))
 
 # %%

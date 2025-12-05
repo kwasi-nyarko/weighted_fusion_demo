@@ -1,7 +1,10 @@
+from datafusion import DataFrame
 import laspy
 import pye57
 import open3d as o3d
 import numpy as np
+
+from expr import COLORS, COORDS
 
 
 U16MAX = np.iinfo(np.uint16).max
@@ -136,7 +139,7 @@ def write_las_file(pc_np, las_path):
     las.write(las_path)
 
 
-def np_point_cloud2_pcd(point_cloud):
+def convert_np2pcd(point_cloud):
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(point_cloud[:, :3])
     pcd.colors = o3d.utility.Vector3dVector(point_cloud[:, 3:6])
@@ -144,7 +147,34 @@ def np_point_cloud2_pcd(point_cloud):
     return pcd
 
 
-def pcd2np_point_cloud(pcd):
+def convert_pcd2np(pcd):
     points = np.asarray(pcd.points)
     colors = np.asarray(pcd.colors)
     return np.concatenate((points, colors), axis=1)
+
+
+def convert_df2pcd(df: DataFrame, estimate_normals=True, fast_normal_computation=False):
+    pcd = o3d.geometry.PointCloud()
+
+    schema = df.schema()
+    names = set(schema.names)
+
+    if not set(COORDS).issubset(names):
+        print("Dataframe must contain `x`, `y`, `z` columns")
+        raise IOError
+
+    if set(COLORS).issubset(names):
+        df = df.select(*COORDS, *COLORS)
+    else:
+        df = df.select(*COORDS)
+
+    for rb in df.execute_stream():
+        points = rb.to_pyarrow().to_tensor().to_numpy()
+        pcd.points.extend(points[:, 0:3])
+        if points.shape[1] == 6:
+            pcd.colors.extend(points[:, 3:])
+
+    if estimate_normals:
+        pcd.estimate_normals(fast_normal_computation=fast_normal_computation)
+
+    return pcd
