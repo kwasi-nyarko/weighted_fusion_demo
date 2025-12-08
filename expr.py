@@ -30,3 +30,14 @@ def voxel_filter_expr(voxel: list[int], size: float, buffer: float = 0.0) -> Exp
         & (col(COORDS[2]) >= lit(zmin))
         & (col(COORDS[2]) < lit(zmax))
     )
+
+
+def point_buffer_filter_expr(point: list[float], buffer: float) -> Expr:
+    return (
+        (col("x") < lit(point[0] + buffer))
+        & (col("x") > lit(point[0] - buffer))
+        & (col("y") < lit(point[1] + buffer))
+        & (col("y") > lit(point[1] - buffer))
+        & (col("z") < lit(point[2] + buffer))
+        & (col("z") > lit(point[2] - buffer))
+    )

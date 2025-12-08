@@ -9,18 +9,29 @@ from data import U16MAX
 from expr import voxel_group_by_expr, COLORS, COORDS
 
 
+VOXEL_SIZE = 0.05
+OUTPUT_DIR = "output"
+
+
 POINT_CLOUDS = ["assets/bun000_Cloud.parquet", "assets/bun045_Cloud.parquet"]
+POINT_CLOUDS_ACCURACY = [0.01, 0.01]
+OUTPUT_FILE_NAME = f"{OUTPUT_DIR}/bunny_fused_scale.las"
+
 # POINT_CLOUDS = [
 #     "data/Vidalaga/drone.parquet",
 #     "data/Vidalaga/p20.parquet",
 #     "data/Vidalaga/vlx.parquet",
 # ]
+# POINT_CLOUDS_ACCURACY = [0.1, 0.005, 0.01]
+# OUTPUT_FILE_NAME = f"{OUTPUT_DIR}/vidalaga_fused_scale.las"
+
 # POINT_CLOUDS = [
 #     "data/BridgeAchen/Brucke_Aachen_Drohne.parquet",
 #     "data/BridgeAchen/Brucke_Aachen_P20.parquet",
 #     "data/BridgeAchen/Brucke_Aachen_VLX2.parquet",
 # ]
-VOXEL_SIZE = 0.05
+# POINT_CLOUDS_ACCURACY = [0.1, 0.005, 0.01]
+
 
 print("Load and downsample point clouds ... ")
 start = time.time()
@@ -62,8 +73,6 @@ print(f"Time to prepare point clouds: {time.time() - start:.3}s")
 # -----------------------------------------------------------------------------
 from weights_df import compute_weights_df
 
-POINT_CLOUDS_ACCURACY = [0.01, 0.01]
-# POINT_CLOUDS_ACCURACY = [0.1, 0.005, 0.01]
 
 # global weights
 print("Computing point cloud weights ... ")
@@ -114,14 +123,9 @@ print(f"Time to fuse point clouds: {time.time() - start:.3}s")
 # -----------------------------------------------------------------------------
 # Output
 # -----------------------------------------------------------------------------
-import os
-
 from data import write_las_file
 
-OUTPUT_DIR = "output"
 
-file_name = "bunny_fused_scale.las"
-# file_name = "vidalaga_fused_scale.las"
-write_las_file(fused_pc, os.path.join(OUTPUT_DIR, file_name))
+write_las_file(fused_pc, OUTPUT_FILE_NAME)
 
 # %%

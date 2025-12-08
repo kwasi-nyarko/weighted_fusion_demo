@@ -2,37 +2,31 @@ import numpy as np
 import open3d as o3d
 import tqdm
 
-from datafusion import DataFrame, col, lit, functions as f
+from datafusion import col, functions as f
 
 from data import convert_df2pcd
-from expr import COLORS, COORDS, voxel_filter_expr, voxel_group_by_expr
+from expr import (
+    COLORS,
+    COORDS,
+    point_buffer_filter_expr,
+    voxel_filter_expr,
+    voxel_group_by_expr,
+)
 from fusion import check_points_distribution, estimate_noise, request_points
 
 
-def request_points_df(pc_df: DataFrame, reference_point, buff: float):
-    f = (
-        (col("x") < lit(reference_point[0] + buff))
-        & (col("x") > lit(reference_point[0] - buff))
-        & (col("y") < lit(reference_point[1] + buff))
-        & (col("y") > lit(reference_point[1] - buff))
-        & (col("z") < lit(reference_point[2] + buff))
-        & (col("z") > lit(reference_point[2] - buff))
-    )
-
-    return pc_df.filter(f)
-
-
 def adjusted_voxel2(
-    reference_df_ds_sub,
+    reference_ds_sub,
     reference_point,
     super_voxel_pcds,
     global_weights,
-    buff,
+    buffer,
     threshold,
 ):
     fused_sub_pcd = o3d.geometry.PointCloud()
 
-    sub_voxel_df = request_points_df(reference_df_ds_sub, reference_point, buff)
+    expr = point_buffer_filter_expr(reference_point, buffer)
+    sub_voxel_df = reference_ds_sub.filter(expr)
     sub_voxel_pcd = convert_df2pcd(sub_voxel_df, estimate_normals=False)
     sub_voxel_points = np.asarray(sub_voxel_pcd.points)
 
@@ -43,9 +37,9 @@ def adjusted_voxel2(
         local_weights = []
 
         for pcd in super_voxel_pcds:
-            filtered = request_points(pcd, sub_voxel_point, buff * 0.5)
+            filtered = request_points(pcd, sub_voxel_point, buffer * 0.5)
 
-            noise = estimate_noise(filtered, buff * 0.5 * 0.01)
+            noise = estimate_noise(filtered, buffer * 0.5 * 0.01)
 
             local_weight = len(filtered.points) * noise
             local_weights.append(local_weight)
@@ -62,7 +56,7 @@ def adjusted_voxel2(
         fused_sub_pcd.points.extend(point.points)
         fused_sub_pcd.colors.extend(point.colors)
 
-        if check_points_distribution(point, sub_voxel_point, threshold, buff):
+        if check_points_distribution(point, sub_voxel_point, threshold, buffer):
             for pcd in sub_voxel_pcds:
                 fused_sub_pcd.points.extend(pcd.points)
                 fused_sub_pcd.colors.extend(pcd.colors)
@@ -71,9 +65,9 @@ def adjusted_voxel2(
 
 
 def weighted_fusion_filter_df(
-    point_clouds_df,
+    point_clouds,
     global_weights,
-    reference_df,
+    reference,
     voxel_size,
     threshold,
     k_global,
@@ -85,22 +79,21 @@ def weighted_fusion_filter_df(
     buff = float((1.1 * voxel_size) / 2.0)
 
     # reference points
-    reference_df_ds = reference_df.aggregate(
+    reference_df_ds = reference.aggregate(
         group_by=voxel_group_by_expr(voxel_size),
         aggs=[f.mean(col(c)).alias(c) for c in [*COORDS]],
     )
 
     # mega voxels
-    factor = 20
+    factor = 50
     mega_voxel_size = float(voxel_size * factor)
-    mega_voxel_df = reference_df.aggregate(
+    mega_voxel_df = reference.aggregate(
         group_by=voxel_group_by_expr(mega_voxel_size), aggs=[]
     )
 
     pbar = tqdm.tqdm(total=reference_df_ds.count(), smoothing=0, delay=1)
 
     for rb in mega_voxel_df.execute_stream():
-
         voxels = rb.to_pyarrow().to_tensor().to_numpy()
 
         for i in range(voxels.shape[0]):
@@ -109,12 +102,12 @@ def weighted_fusion_filter_df(
 
             # cache points
             point_clouds_df_cached = [
-                df.filter(voxel_filter_buf).cache() for df in point_clouds_df
+                df.filter(voxel_filter_buf).cache() for df in point_clouds
             ]
 
             # sub voxels
             reference_df_ds_sub = (
-                reference_df.filter(voxel_filter_buf)
+                reference.filter(voxel_filter_buf)
                 .aggregate(
                     group_by=voxel_group_by_expr(voxel_size / 2),
                     aggs=[f.mean(col(c)).alias(c) for c in [*COORDS, *COLORS]],
@@ -123,10 +116,9 @@ def weighted_fusion_filter_df(
             )
 
             # reference points
-            reference_pcd_ds = convert_df2pcd(
-                reference_df_ds.filter(voxel_filter), estimate_normals=False
-            )
-            reference_points = np.asarray(reference_pcd_ds.points)
+            df = reference_df_ds.filter(voxel_filter)
+            pcd = convert_df2pcd(df, estimate_normals=False)
+            reference_points = np.asarray(pcd.points)
 
             for i in range(reference_points.shape[0]):
                 reference_point = reference_points[i]
@@ -135,14 +127,14 @@ def weighted_fusion_filter_df(
                 local_weights = []
 
                 for pc_df in point_clouds_df_cached:
-                    voxel_df = request_points_df(pc_df, reference_point, buff)
+                    expr = point_buffer_filter_expr(reference_point, buff)
+                    voxel_df = pc_df.filter(expr)
                     voxel_pcd = convert_df2pcd(voxel_df, estimate_normals=False)
 
+                    count = len(voxel_pcd.points)
                     noise_point = estimate_noise(voxel_pcd, buff * 0.01)
 
-                    weight = (
-                        len(voxel_pcd.points) / (voxel_size * 10) ** 3
-                    ) * noise_point
+                    weight = (count / (voxel_size * 10) ** 3) * noise_point
 
                     voxel_pcds.append(voxel_pcd)
                     local_weights.append(weight)
