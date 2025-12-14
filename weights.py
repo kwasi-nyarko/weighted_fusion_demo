@@ -90,11 +90,12 @@ def compute_surface_area(pcd, voxel_size):
     return rec_mesh.get_surface_area()
 
 
-def compute_weights(reference_pcd, point_clouds_pcd, accuracies, voxel_size):
+def compute_weights(reference_pcd, point_clouds_pcd, accuracies, voxel_size, factor=1):
     reference_pcd_ds = reference_pcd.voxel_down_sample(voxel_size=voxel_size * 2)
     reference_surface_area = compute_surface_area(reference_pcd_ds, voxel_size * 2)
 
     weights = []
+    completenesses = []
 
     for pcd, accuracy in zip(point_clouds_pcd, accuracies):
 
@@ -103,7 +104,7 @@ def compute_weights(reference_pcd, point_clouds_pcd, accuracies, voxel_size):
         pcd_surface_area = compute_surface_area(pcd_ds, voxel_size * 2)
 
         completeness = pcd_surface_area / reference_surface_area
-        print("Completeness:", completeness)
+        completenesses.append(completeness)
         weight = accuracy / completeness
 
         weights.append(weight)
@@ -111,6 +112,6 @@ def compute_weights(reference_pcd, point_clouds_pcd, accuracies, voxel_size):
     if len(weights) > 1:
         weights = np.sum(weights) - weights
 
-    rmse = compute_rmse(point_clouds_pcd, accuracies, voxel_size)
+    rmse = compute_rmse(point_clouds_pcd, accuracies, voxel_size * factor)
 
-    return weights / (1 - rmse)
+    return weights / (1 - rmse), completenesses, rmse

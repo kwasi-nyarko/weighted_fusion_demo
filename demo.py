@@ -48,7 +48,7 @@ POINT_CLOUDS_ACCURACY = [0.01, 0.01]
 print("Computing point cloud weights ... ")
 start = time.time()
 
-global_weights = compute_weights(
+(global_weights, completeness, rmse) = compute_weights(
     reference_pcd,
     point_clouds_pcd,
     POINT_CLOUDS_ACCURACY,

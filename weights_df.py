@@ -56,12 +56,13 @@ def compute_rmse_df(point_clouds_df, accuracies, voxel_size):
     return np.array(rmse)
 
 
-def compute_weights_df(reference_df, point_clouds_df, accuracies, voxel_size):
+def compute_weights_df(reference_df, point_clouds_df, accuracies, voxel_size, factor=1):
     reference_voxel_count = reference_df.aggregate(
         group_by=voxel_group_by_expr(voxel_size / 2.0), aggs=[]
     ).count()
 
     weights = []
+    completenesses = []
 
     for pc_df, accuracy in zip(point_clouds_df, accuracies):
         pc_volxel_count = pc_df.aggregate(
@@ -69,7 +70,7 @@ def compute_weights_df(reference_df, point_clouds_df, accuracies, voxel_size):
         ).count()
 
         completeness = float(pc_volxel_count) / float(reference_voxel_count)
-        print("Completeness:", completeness)
+        completenesses.append(completeness)
         weight = accuracy / completeness
 
         weights.append(weight)
@@ -77,6 +78,6 @@ def compute_weights_df(reference_df, point_clouds_df, accuracies, voxel_size):
     if len(weights) > 1:
         weights = np.sum(weights) - weights
 
-    rmse = compute_rmse_df(point_clouds_df, accuracies, voxel_size)
+    rmse = compute_rmse_df(point_clouds_df, accuracies, voxel_size * factor)
 
-    return weights / (1 - rmse)
+    return weights / (1 - rmse), completenesses, rmse

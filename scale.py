@@ -78,7 +78,7 @@ from weights_df import compute_weights_df
 print("Computing point cloud weights ... ")
 start = time.time()
 
-global_weights = compute_weights_df(
+(global_weights, completeness, rmse) = compute_weights_df(
     reference_df,
     point_clouds_df,
     POINT_CLOUDS_ACCURACY,
